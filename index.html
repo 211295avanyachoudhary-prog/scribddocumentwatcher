@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Study Notes Space</title>
+<style>
+:root{--bg:#f6f5f1;--sf:#fff;--tx:#1c1c1a;--mu:#6b6a64;--bd:#dcdad2;--ac:#0f7a5a;--ac2:#e6f3ee;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#161715;--sf:#1f2120;--tx:#eceae3;--mu:#9a988f;--bd:#34362f;--ac:#3fc29a;--ac2:#1c2f29}}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+.app{display:flex;min-height:100vh;gap:0}
+aside{width:250px;flex:none;background:var(--sf);border-right:1px solid var(--bd);padding:14px;overflow:auto}
+main{flex:1;min-width:0;padding:14px}
+h1{font-size:17px;margin:0 0 12px}
+.folder{border:1px solid var(--bd);border-radius:10px;margin-bottom:8px;overflow:hidden}
+.fh{display:flex;justify-content:space-between;padding:9px 11px;cursor:pointer;font-weight:600;font-size:14px}
+.fh.on{background:var(--ac2);color:var(--ac)}
+.fh span{color:var(--mu);font-weight:400}
+.doc{padding:7px 11px;font-size:13px;border-top:1px solid var(--bd);cursor:pointer;display:flex;justify-content:space-between;gap:6px}
+.doc:hover,.doc.on{background:var(--ac2)}
+.doc button{border:0;background:none;color:var(--mu);cursor:pointer}
+button,select,input{font:inherit;color:var(--tx)}
+.tb{display:flex;flex-wrap:wrap;gap:6px;align-items:center;background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:8px;margin-bottom:10px}
+.tb button,.btn{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:6px 10px;cursor:pointer;font-size:13px}
+.tb button.on{background:var(--ac);color:#fff;border-color:var(--ac)}
+.tb select,.tb input[type=number]{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:5px;font-size:13px}
+.tb input[type=number]{width:70px}
+.sep{width:1px;height:22px;background:var(--bd)}
+.wrap{overflow:auto;max-height:78vh;border:1px solid var(--bd);border-radius:10px;background:var(--sf)}
+.stage{position:relative;margin:0 auto}
+.stage iframe{display:block;border:0;width:100%;height:100%}
+canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
+.add{background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:10px;margin-bottom:10px;display:none}
+.add.show{display:block}
+.add textarea{width:100%;height:80px;background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:6px;font-size:12px}
+.row{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
+.hint{color:var(--mu);font-size:12px;margin:8px 2px}
+.empty{padding:60px 20px;text-align:center;color:var(--mu)}
+@media(max-width:760px){.app{flex-direction:column}aside{width:auto;border-right:0;border-bottom:1px solid var(--bd)}}
+</style>
+</head>
+<body>
+<div class="app">
+<aside>
+  <h1>📚 Study Notes</h1>
+  <div id="folders"></div>
+  <button class="btn" style="width:100%;margin-top:8px" id="newBtn">+ Add document</button>
+</aside>
+<main>
+  <div class="add" id="add">
+    <div style="font-size:13px;margin-bottom:6px">Paste the Scribd embed code (the whole <b>&lt;iframe…&gt;</b> block):</div>
+    <textarea id="embed" placeholder="<iframe class=&quot;scribd_iframe_embed&quot; ..."></textarea>
+    <div class="row">
+      <input id="ttl" placeholder="Title (optional)" style="flex:1;min-width:140px;background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:6px">
+      <select id="fsel" class="btn"></select>
+      <button class="btn" id="saveDoc" style="background:var(--ac);color:#fff">Save document</button>
+    </div>
+  </div>
+  <div id="viewer"></div>
+</main>
+</div>
+<script>
+var FOLDERS=[["physics","Physics"],["chemistry","Chemistry"],["bio","Biology"],["english","English"],["pe","Physical Education"],["painting","Painting"]];
+var SEED={id:"d1",title:"Atom class 12 Handwritten Notes",folder:"physics",h:900,w:100,src:"https://www.scribd.com/embeds/836039023/content?start_page=1&view_mode=scroll&access_key=key-oWrJ3BfGcH10ZbfBYpBA"};
+var S={docs:[],marks:{},cur:null,open:"physics",tool:"view",color:"#ffe600"};
+function load(){try{var d=localStorage.getItem("sn_docs");if(d)S.docs=JSON.parse(d);var m=localStorage.getItem("sn_marks");if(m)S.marks=JSON.parse(m)}catch(e){}
+ if(!S.docs.length)S.docs=[SEED];}
+function persist(){try{localStorage.setItem("sn_docs",JSON.stringify(S.docs));localStorage.setItem("sn_marks",JSON.stringify(S.marks))}catch(e){toast("Could not save (storage full or blocked)")}}
+function toast(t){alert(t)}
+function $(i){return document.getElementById(i)}
+function esc(s){return String(s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
+
+function renderSide(){
+ $("folders").innerHTML=FOLDERS.map(function(f){
+  var ds=S.docs.filter(function(d){return d.folder==f[0]});
+  var list=S.open==f[0]?ds.map(function(d){return '<div class="doc'+(S.cur==d.id?' on':'')+'" data-id="'+d.id+'"><span>'+esc(d.title)+'</span><button data-del="'+d.id+'" title="Delete">✕</button></div>'}).join("")||'<div class="doc" style="color:var(--mu)">Empty</div>':"";
+  return '<div class="folder"><div class="fh'+(S.open==f[0]?' on':'')+'" data-f="'+f[0]+'">'+f[1]+'<span>'+ds.length+'</span></div>'+list+'</div>'}).join("");
+ $("fsel").innerHTML=FOLDERS.map(function(f){return '<option value="'+f[0]+'">'+f[1]+'</option>'}).join("");
+ $("fsel").value=S.open;
+}
+$("folders").onclick=function(e){
+ var del=e.target.getAttribute("data-del");
+ if(del){if(confirm("Delete this document and its marks?")){S.docs=S.docs.filter(function(d){return d.id!=del});delete S.marks[del];if(S.cur==del)S.cur=null;persist();renderSide();renderViewer()}return}
+ var d=e.target.closest(".doc");if(d&&d.dataset.id){S.cur=d.dataset.id;renderSide();renderViewer();return}
+ var f=e.target.closest(".fh");if(f){S.open=f.dataset.f;renderSide()}
+};
+$("newBtn").onclick=function(){$("add").classList.toggle("show")};
+$("saveDoc").onclick=function(){
+ var code=$("embed").value,m=code.match(/src="([^"]+)"/),t=code.match(/title="([^"]+)"/);
+ if(!m){toast("Could not find src=\"…\" in the embed code");return}
+ var d={id:"d"+Date.now(),title:$("ttl").value||(t?t[1].trim():"Untitled"),folder:$("fsel").value,h:900,w:100,src:m[1].replace(/&amp;/g,"&")};
+ S.docs.push(d);S.cur=d.id;S.open=d.folder;persist();$("embed").value="";$("ttl").value="";$("add").classList.remove("show");renderSide();renderViewer();
+};
+
+var cv,ctx,strokes=[],drawing=null;
+function doc(){return S.docs.filter(function(d){return d.id==S.cur})[0]}
+function renderViewer(){
+ var d=doc(),v=$("viewer");
+ if(!d){v.innerHTML='<div class="empty">Pick a document from a folder, or add a new one.</div>';return}
+ var tools=[["view","👆 Scroll"],["pen","✏️ Pen"],["hl","🖍 Highlight"],["ul","⎁ Underline"],["er","🧽 Erase"]];
+ v.innerHTML='<div class="tb">'+tools.map(function(t){return '<button data-t="'+t[0]+'" class="'+(S.tool==t[0]?'on':'')+'">'+t[1]+'</button>'}).join("")+
+ '<input type="color" id="col" value="'+S.color+'" title="Colour">'+
+ '<button id="undo">↩ Undo</button><button id="clr">Clear</button><div class="sep"></div>'+
+ '<label style="font-size:13px">Height <input type="number" id="hh" min="300" max="6000" step="100" value="'+d.h+'"></label>'+
+ '<label style="font-size:13px">Width % <input type="number" id="ww" min="30" max="100" step="5" value="'+d.w+'"></label>'+
+ '<select id="pre"><option value="">Size preset</option><option value="500|60">Small</option><option value="900|80">Medium</option><option value="1600|100">Large</option><option value="3000|100">Extra tall</option></select>'+
+ '<div class="sep"></div><button id="shot">📸 Screenshot</button><button id="exp">⬇ Marks PNG</button></div>'+
+ '<div class="wrap"><div class="stage" id="stage" style="width:'+d.w+'%;height:'+d.h+'px"><iframe src="'+esc(d.src)+'" scrolling="no" allowfullscreen></iframe><canvas id="cv"></canvas></div></div>'+
+ '<div class="hint">Choose a tool, then draw straight over the page. Switch to “Scroll” to move inside the document. Marks are saved automatically in this browser.</div>';
+ cv=$("cv");ctx=cv.getContext("2d");strokes=S.marks[d.id]||(S.marks[d.id]=[]);
+ sizeCanvas();bind();
+}
+function sizeCanvas(){var r=cv.getBoundingClientRect(),dpr=window.devicePixelRatio||1;cv.width=r.width*dpr;cv.height=r.height*dpr;redraw()}
+window.addEventListener("resize",function(){if(cv)sizeCanvas()});
+function paint(s){
+ var W=cv.width,H=cv.height,p=s.p;if(!p.length)return;
+ ctx.save();ctx.lineCap="round";ctx.lineJoin="round";ctx.strokeStyle=s.c;
+ if(s.t=="hl"){ctx.globalAlpha=.4;ctx.lineWidth=W*0.022;ctx.lineCap="butt"}
+ else if(s.t=="ul"){ctx.lineWidth=W*0.003+1}
+ else ctx.lineWidth=W*0.003+1;
+ ctx.beginPath();
+ if(s.t=="hl"||s.t=="ul"){ctx.moveTo(p[0][0]*W,p[0][1]*H);ctx.lineTo(p[p.length-1][0]*W,p[0][1]*H)}
+ else{ctx.moveTo(p[0][0]*W,p[0][1]*H);p.forEach(function(q){ctx.lineTo(q[0]*W,q[1]*H)})}
+ ctx.stroke();ctx.restore();
+}
+function redraw(){ctx.clearRect(0,0,cv.width,cv.height);strokes.forEach(paint);if(drawing)paint(drawing)}
+function pt(e){var r=cv.getBoundingClientRect();return[(e.clientX-r.left)/r.width,(e.clientY-r.top)/r.height]}
+function bind(){
+ var d=doc();
+ cv.style.pointerEvents=S.tool=="view"?"none":"auto";
+ cv.style.cursor=S.tool=="er"?"cell":"crosshair";
+ cv.onpointerdown=function(e){
+  cv.setPointerCapture(e.pointerId);var q=pt(e);
+  if(S.tool=="er"){erase(q);return}
+  drawing={t:S.tool,c:S.color,p:[q]};
+ };
+ cv.onpointermove=function(e){
+  if(S.tool=="er"){if(e.buttons)erase(pt(e));return}
+  if(!drawing)return;drawing.p.push(pt(e));redraw()};
+ cv.onpointerup=function(){
+  if(drawing){if(drawing.p.length>1)strokes.push(drawing);drawing=null;persist();redraw()}};
+ document.querySelectorAll("[data-t]").forEach(function(b){b.onclick=function(){S.tool=b.dataset.t;document.querySelectorAll("[data-t]").forEach(function(x){x.classList.toggle("on",x==b)});
+  if(S.tool=="hl"&&S.color!="#ffe600"&&!S.hlTouched){} cv.style.pointerEvents=S.tool=="view"?"none":"auto";cv.style.cursor=S.tool=="er"?"cell":"crosshair"}});
+ $("col").oninput=function(e){S.color=e.target.value};
+ $("undo").onclick=function(){strokes.pop();persist();redraw()};
+ $("clr").onclick=function(){if(confirm("Remove all marks from this document?")){strokes.length=0;persist();redraw()}};
+ function size(){d.h=Math.max(300,+$("hh").value||900);d.w=Math.min(100,Math.max(30,+$("ww").value||100));$("stage").style.height=d.h+"px";$("stage").style.width=d.w+"%";persist();sizeCanvas()}
+ $("hh").onchange=size;$("ww").onchange=size;
+ $("pre").onchange=function(e){if(!e.target.value)return;var a=e.target.value.split("|");$("hh").value=a[0];$("ww").value=a[1];size();e.target.value=""};
+ $("exp").onclick=function(){var a=document.createElement("a");a.href=cv.toDataURL("image/png");a.download=d.title+"-marks.png";a.click()};
+ $("shot").onclick=shot;
+}
+function erase(q){
+ var n=strokes.length;
+ for(var i=strokes.length-1;i>=0;i--){var s=strokes[i];
+  var hit=s.p.some(function(p){return Math.abs(p[0]-q[0])<.02&&Math.abs(p[1]-q[1])<.012});
+  if((s.t=="hl"||s.t=="ul")&&!hit){var a=s.p[0],b=s.p[s.p.length-1];if(Math.abs(a[1]-q[1])<.012&&q[0]>=Math.min(a[0],b[0])&&q[0]<=Math.max(a[0],b[0]))hit=true}
+  if(hit)strokes.splice(i,1)}
+ if(strokes.length!=n){persist();redraw()}
+}
+async function shot(){
+ var d=doc();
+ if(!navigator.mediaDevices||!navigator.mediaDevices.getDisplayMedia){toast("Screenshot needs a desktop browser (Chrome, Edge or Firefox). On a phone, use your phone’s own screenshot.");return}
+ try{
+  var st=await navigator.mediaDevices.getDisplayMedia({video:true,preferCurrentTab:true});
+  var vid=document.createElement("video");vid.srcObject=st;await vid.play();
+  await new Promise(function(r){setTimeout(r,300)});
+  var wrap=document.querySelector(".wrap").getBoundingClientRect();
+  var sx=vid.videoWidth/window.innerWidth,sy=vid.videoHeight/window.innerHeight;
+  var c=document.createElement("canvas");c.width=wrap.width*sx;c.height=wrap.height*sy;
+  c.getContext("2d").drawImage(vid,wrap.left*sx,wrap.top*sy,wrap.width*sx,wrap.height*sy,0,0,c.width,c.height);
+  st.getTracks().forEach(function(t){t.stop()});
+  var a=document.createElement("a");a.href=c.toDataURL("image/png");a.download=d.title+"-screenshot.png";a.click();
+ }catch(e){toast("Screenshot was cancelled or blocked. Choose “This tab” when your browser asks what to share.")}
+}
+load();renderSide();renderViewer();
+</script>
+</body>
+</html>
